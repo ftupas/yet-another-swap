@@ -27,6 +27,7 @@ mod PositionTests {
                 owner: OWNER(),
                 tick_lower: IntegerTrait::<i32>::new(0, false),
                 tick_upper: IntegerTrait::<i32>::new(10, false),
+                is_limit_order: false,
             };
 
             let info = Info {
@@ -35,6 +36,7 @@ mod PositionTests {
                 fee_growth_inside_1_last_X128: 20,
                 tokens_owed_0: 10,
                 tokens_owed_1: 10,
+                is_limit_order: false,
             };
 
             InternalImpl::set_position(ref state, position_key, info);
@@ -46,6 +48,7 @@ mod PositionTests {
             assert(position.fee_growth_inside_1_last_X128 == 20, 'fee_growth_inside_1_last_X128');
             assert(position.tokens_owed_0 == 10, 'tokens_owed_0');
             assert(position.tokens_owed_1 == 10, 'tokens_owed_1');
+            assert(position.is_limit_order == false, 'is_limit_order');
         }
         #[test]
         #[available_gas(30000000)]
@@ -56,6 +59,7 @@ mod PositionTests {
                 owner: OWNER(),
                 tick_lower: IntegerTrait::<i32>::new(0, false),
                 tick_upper: IntegerTrait::<i32>::new(10, false),
+                is_limit_order: false,
             };
 
             let position: Info = PositionImpl::get(@state, position_key);
@@ -85,6 +89,7 @@ mod PositionTests {
                 owner: OWNER(),
                 tick_lower: IntegerTrait::<i32>::new(0, false),
                 tick_upper: IntegerTrait::<i32>::new(10, false),
+                is_limit_order: false,
             };
 
             // should be zero or negative to make it panic
@@ -111,6 +116,7 @@ mod PositionTests {
                 owner: OWNER(),
                 tick_lower: IntegerTrait::<i32>::new(0, false),
                 tick_upper: IntegerTrait::<i32>::new(10, false),
+                is_limit_order: false,
             };
 
             let info = Info {
@@ -119,6 +125,7 @@ mod PositionTests {
                 fee_growth_inside_1_last_X128: 0,
                 tokens_owed_0: 10,
                 tokens_owed_1: 10,
+                is_limit_order: false,
             };
 
             InternalImpl::set_position(ref state, position_key, info);
@@ -143,6 +150,7 @@ mod PositionTests {
             assert(position.fee_growth_inside_1_last_X128 == 0, 'fee_growth_inside_1_last_X128');
             assert(position.tokens_owed_0 == 10, 'tokens_owed_0');
             assert(position.tokens_owed_1 == 10, 'tokens_owed_1');
+            assert(position.is_limit_order == false, 'is_limit_order');
         }
 
         #[test]
@@ -154,6 +162,7 @@ mod PositionTests {
                 owner: OWNER(),
                 tick_lower: IntegerTrait::<i32>::new(0, false),
                 tick_upper: IntegerTrait::<i32>::new(10, false),
+                is_limit_order: false,
             };
 
             let liquidity_delta = IntegerTrait::<i128>::new(100, false);

@@ -192,11 +192,13 @@ On Starknet, the deployment process is in two steps:
 
 This demo will perform the following steps:
 
-- Declaration of the following contracts: ERC20 Token, YASFactory, YASPool, and YASRouter.
+- Declaration of the following contracts: ERC20 Token, YASFactory, YASPool,
+  and YASRouter.
 - Deployment of 2 ERC20 Tokens, YASFactory, YASPool, and YASRouter.
 - Initialization of YASPool with a 1:1 token price.
 - Execute approve() for the router to use tokens from the user.
-- Execute mint() within the range [-887220, 887220] with 2000000000000000000 tokens.
+- Execute mint() within the range [-887220, 887220] with 2000000000000000000
+  tokens.
 - Execute swap() exchanging 500000000000000000 of token 0 for token 1.
 - Display current balances of both the pool and the user.
 
@@ -230,6 +232,20 @@ PRIVATE_KEY=0x2bbf4f9fd0bbb2e60b0316c1fe0b76cf7a4d0198bd493ced9b8df2a3a24d68a \
 STARKNET_RPC="https://rpc-goerli-1.starknet.rs/rpc/v0.4" \
 make deploy
 ```
+
+## Implementing Limit Orders
+
+### `create_limit_order`
+
+- Similar to `mint`, this function creates a limit order of `amount` between
+  `tick_lower` and `tick_lower + tick_spacing`.
+- In the `Info` and `PositionKey` struct, we add a flag `is_limit_order` to
+  differentiate if the position is a limit order. The bitmap data structure
+  allows the position to be stored in an efficient way so we don't need to
+  loop over them for each swap.
+- When a `swap` happens and the position to be filled is a limit order, the
+  liquidity is automatically withdrawn. This way the position does not get
+  unfilled if the price moves back across the tick.
 
 ## Version Specifications
 

@@ -19,13 +19,14 @@ mod TestSwapMath {
         use yas::tests::test_libraries::test_swap_math::TestSwapMath::expand_to_18_decimals;
 
         use yas::numbers::signed_integer::integer_trait::IntegerTrait;
+        use yas::tests::utils::constants::PoolConstants::encode_price_sqrt_1_1;
 
         // exact amount in that gets capped at price target in one for zero
         #[test]
         #[available_gas(200000000)]
         fn test_amount_in_gets_capped_at_price_target_in_one_for_zero() {
             // price is the result of encode_price_sqrt(1, 1) on v3-core typescript impl. 
-            let price = FP64x96Impl::new(79228162514264337593543950336, false);
+            let price = encode_price_sqrt_1_1();
             // price_target is the result of encode_price_sqrt(101, 100) on v3-core typescript impl. 
             let price_target = FP64x96Impl::new(79623317895830914510639640423, false);
             let liquidity: u128 = expand_to_18_decimals(2).try_into().unwrap();
@@ -59,7 +60,7 @@ mod TestSwapMath {
         #[available_gas(200000000)]
         fn test_amount_out_gets_capped_at_price_target_in_one_for_zero() {
             // price is the result of encode_price_sqrt(1, 1) on v3-core typescript impl. 
-            let price = FP64x96Impl::new(79228162514264337593543950336, false);
+            let price = encode_price_sqrt_1_1();
             // price_target is the result of encode_price_sqrt(101, 100) on v3-core typescript impl. 
             let price_target = FP64x96Impl::new(79623317895830914510639640423, false);
             let liquidity: u128 = expand_to_18_decimals(2).try_into().unwrap();
@@ -89,7 +90,7 @@ mod TestSwapMath {
         #[available_gas(200000000)]
         fn test_amount_in_that_is_fully_spent_in_one_for_zero() {
             // price is the result of encode_price_sqrt(1, 1) on v3-core typescript impl. 
-            let price = FP64x96Impl::new(79228162514264337593543950336, false);
+            let price = encode_price_sqrt_1_1();
             // price_target is the result of encode_price_sqrt(1000, 100) on v3-core typescript impl. 
             let price_target = FP64x96Impl::new(250541448375047931186413801569, false);
 
@@ -125,7 +126,7 @@ mod TestSwapMath {
         #[available_gas(200000000)]
         fn test_amount_out_that_is_fully_received_in_one_for_zero() {
             // price is the result of encode_price_sqrt(1, 1) on v3-core typescript impl. 
-            let price = FP64x96Impl::new(79228162514264337593543950336, false);
+            let price = encode_price_sqrt_1_1();
             // price_target is the result of encode_price_sqrt(10000, 100) on v3-core typescript impl. 
             let price_target = FP64x96Impl::new(792281625142643375935439503360, false);
 

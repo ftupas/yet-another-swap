@@ -525,7 +525,7 @@ mod YASPoolTests {
                 #[test]
                 #[available_gas(200000000)]
                 fn test_transfers_token_0_only() {
-                    let (yas_pool, token_0, token_1) = setup();
+                    let (yas_pool, token_0, token_1, _) = setup();
 
                     let balance_token_0 = token_0.balanceOf(yas_pool.contract_address);
                     let balance_token_1 = token_1.balanceOf(yas_pool.contract_address);
@@ -561,6 +561,75 @@ mod YASPoolTests {
     // TODO: 'poke is not allowed on uninitialized position'
     }
 
+    mod LimitOrder {
+        mod FailureCases {
+            use starknet::testing::set_contract_address;
+            use super::super::{setup, get_min_tick_and_max_tick};
+            use yas::contracts::yas_pool::{
+                YASPool, YASPool::ContractState, YASPool::InternalImpl, IYASPool,
+                IYASPoolDispatcher, IYASPoolDispatcherTrait
+            };
+            use yas::tests::utils::constants::PoolConstants::{
+                TOKEN_A, TOKEN_B, WALLET, encode_price_sqrt_1_1
+            };
+            #[test]
+            #[available_gas(70000000)]
+            #[should_panic(expected: ('no liquidity', 'ENTRYPOINT_FAILED'),)]
+            fn test_fails_create_limit_order_no_liquidity() {
+                let (yas_pool, token_0, token_1, router) = setup();
+                let (min_tick, _) = get_min_tick_and_max_tick();
+                set_contract_address(router.contract_address);
+                yas_pool.create_limit_order(WALLET(), min_tick, 0, array![WALLET().into()]);
+            }
+        }
+        mod SuccessCases {
+            use starknet::testing::set_contract_address;
+            use super::super::{setup, get_min_tick_and_max_tick};
+            use yas::contracts::yas_pool::{
+                YASPool, YASPool::ContractState, YASPool::InternalImpl, IYASPool,
+                IYASPoolDispatcher, IYASPoolDispatcherTrait
+            };
+            use yas::numbers::signed_integer::{
+                i32::i32, i32::i32_div_no_round, i64::i64, i128::i128, integer_trait::IntegerTrait
+            };
+            use yas::libraries::tick_math::TickMath::get_tick_at_sqrt_ratio;
+            use yas::libraries::{position::{Info, Position, Position::PositionImpl, PositionKey}};
+            use yas::contracts::yas_erc20::IERC20DispatcherTrait;
+            use yas::tests::utils::constants::PoolConstants::{
+                TOKEN_A, TOKEN_B, WALLET, encode_price_sqrt_1_1
+            };
+            #[test]
+            #[available_gas(700000000)]
+            fn test_succeed_create_limit_order() {
+                // Given
+                let (yas_pool, token_0, token_1, router) = setup();
+                let tick = get_tick_at_sqrt_ratio(encode_price_sqrt_1_1());
+                let liquidity = 2000000;
+                let position_key = PositionKey {
+                    owner: WALLET(),
+                    tick_lower: tick,
+                    tick_upper: tick + IntegerTrait::<i32>::new(10, false), // tick spacing for LOW
+                    is_limit_order: true,
+                };
+                let position_info = Info {
+                    liquidity,
+                    fee_growth_inside_0_last_X128: 0,
+                    fee_growth_inside_1_last_X128: 0,
+                    tokens_owed_0: 0,
+                    tokens_owed_1: 0,
+                    is_limit_order: true,
+                };
+                set_contract_address(router.contract_address);
+                yas_pool
+                    .create_limit_order(
+                        WALLET(), tick, liquidity, array![WALLET().into()]
+                    ); // caller of router is the account
+                let info = yas_pool.position(position_key);
+                assert(info == position_info, 'wrong position info');
+            }
+        }
+    }
+
     // YASPool mint() aux functions
     use starknet::{ClassHash, SyscallResultTrait};
     use starknet::testing::{set_contract_address, set_caller_address};
@@ -573,15 +642,18 @@ mod YASPoolTests {
         FP64x96Impl, FixedType, FixedTrait
     };
     use yas::contracts::yas_router::{YASRouter, IYASRouterDispatcher, IYASRouterDispatcherTrait};
-    use yas::tests::utils::constants::PoolConstants::{TOKEN_A, TOKEN_B, POOL_ADDRESS, WALLET};
+    use yas::tests::utils::constants::PoolConstants::{
+        TOKEN_A, TOKEN_B, POOL_ADDRESS, WALLET, encode_price_sqrt_1_1
+    };
     use yas::tests::utils::constants::FactoryConstants::{
-        POOL_CLASS_HASH, FeeAmount, fee_amount, tick_spacing
+        POOL_CLASS_HASH, FeeAmount, fee_amount, tick_spacing,
     };
     use yas::contracts::yas_erc20::{
         ERC20, ERC20::ERC20Impl, IERC20Dispatcher, IERC20DispatcherTrait
     };
+    use debug::PrintTrait;
 
-    fn setup() -> (IYASPoolDispatcher, IERC20Dispatcher, IERC20Dispatcher) {
+    fn setup() -> (IYASPoolDispatcher, IERC20Dispatcher, IERC20Dispatcher, IYASRouterDispatcher) {
         let mint_callback = deploy_mint_callback(); // 0x1
         let yas_factory = deploy_factory(OWNER(), POOL_CLASS_HASH()); // 0x2
 
@@ -598,7 +670,7 @@ mod YASPoolTests {
         token_1.approve(mint_callback.contract_address, BoundedInt::max());
         token_0.approve(mint_callback.contract_address, BoundedInt::max());
 
-        let encode_price_sqrt_1_1 = FP64x96Impl::new(79228162514264337593543950336, false);
+        let encode_price_sqrt_1_1 = encode_price_sqrt_1_1();
 
         let yas_pool_address = yas_factory // 0x5
             .create_pool(
@@ -612,8 +684,7 @@ mod YASPoolTests {
         let (min_tick, max_tick) = get_min_tick_and_max_tick();
         set_contract_address(WALLET());
         mint_callback.mint(yas_pool_address, WALLET(), min_tick, max_tick, 2000000000000000000);
-
-        (yas_pool, token_0, token_1)
+        (yas_pool, token_0, token_1, mint_callback)
     }
 
     fn deploy_erc20(
@@ -682,13 +753,16 @@ mod YASPoolTests {
     }
 
     fn mock_position_key_and_info(lower: i32, upper: i32) -> (PositionKey, Position::Info) {
-        let position_key = PositionKey { owner: OWNER(), tick_lower: lower, tick_upper: upper, };
+        let position_key = PositionKey {
+            owner: OWNER(), tick_lower: lower, tick_upper: upper, is_limit_order: false,
+        };
         let position_info = Info {
             liquidity: 1000,
             fee_growth_inside_0_last_X128: 0,
             fee_growth_inside_1_last_X128: 0,
             tokens_owed_0: 0,
             tokens_owed_1: 0,
+            is_limit_order: false,
         };
         (position_key, position_info)
     }
