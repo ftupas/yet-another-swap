@@ -1,6 +1,7 @@
 use starknet::ContractAddress;
 use yas::numbers::signed_integer::{i32::i32, i256::i256};
 use yas::numbers::fixed_point::implementations::impl_64x96::FixedType;
+use yas::libraries::position::{PositionKey, Info};
 
 #[starknet::interface]
 trait IYASPool<TContractState> {
@@ -21,6 +22,14 @@ trait IYASPool<TContractState> {
         amount: u128,
         data: Array<felt252>
     ) -> (u256, u256);
+    fn create_limit_order(
+        ref self: TContractState,
+        recipient: ContractAddress,
+        tick_lower: i32,
+        amount: u128,
+        data: Array<felt252>
+    );
+    fn position(self: @TContractState, position_key: PositionKey) -> Info;
     fn token_0(self: @TContractState) -> ContractAddress;
     fn token_1(self: @TContractState) -> ContractAddress;
 }
@@ -57,6 +66,8 @@ mod YASPool {
     use yas::utils::math_utils::Constants::Q128;
     use yas::utils::math_utils::FullMath;
     use yas::utils::math_utils::BitShift::BitShiftTrait;
+    use yas::libraries::errors::{LiquidityError, RangeError};
+    use debug::PrintTrait;
 
     #[event]
     #[derive(Drop, starknet::Event)]
@@ -64,6 +75,7 @@ mod YASPool {
         Initialize: Initialize,
         SwapExecuted: SwapExecuted,
         Mint: Mint,
+        LimitOrder: LimitOrder,
     }
 
     /// @notice Emitted exactly once by a pool when #initialize is first called on the pool
@@ -96,6 +108,14 @@ mod YASPool {
         amount: u128,
         amount_0: u256,
         amount_1: u256
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct LimitOrder {
+        sender: ContractAddress,
+        recipient: ContractAddress,
+        tick_lower: i32,
+        amount: u128,
     }
 
     #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -197,6 +217,10 @@ mod YASPool {
 
         fn token_1(self: @ContractState) -> ContractAddress {
             self.token_1.read()
+        }
+
+        fn position(self: @ContractState, position_key: PositionKey) -> Info {
+            PositionImpl::get(@Position::unsafe_new_contract_state(), position_key)
         }
 
         /// @notice Sets the initial price for the pool
@@ -486,7 +510,9 @@ mod YASPool {
             let (_, amount_0, amount_1) = self
                 .modify_position(
                     ModifyPositionParams {
-                        position_key: PositionKey { owner: recipient, tick_lower, tick_upper },
+                        position_key: PositionKey {
+                            owner: recipient, tick_lower, tick_upper, is_limit_order: false
+                        },
                         liquidity_delta: amount.into()
                     }
                 );
@@ -534,6 +560,61 @@ mod YASPool {
                 );
             self.unlock();
             (amount_0, amount_1)
+        }
+
+        fn create_limit_order(
+            ref self: ContractState,
+            recipient: ContractAddress,
+            tick_lower: i32,
+            amount: u128, // liquidity_delta
+            data: Array<felt252>,
+        ) {
+            if amount == 0 {
+                LiquidityError::ZeroLiquidity()
+            }
+
+            self.check_and_lock();
+
+            // Get amount0 and amount1 needed to modify liquidity by liquidity_delta
+            // with tick_upper = tick_lower + tickSpacing
+            let (_, amount_0, amount_1) = self
+                .modify_position(
+                    ModifyPositionParams {
+                        position_key: PositionKey {
+                            owner: recipient,
+                            tick_lower,
+                            tick_upper: tick_lower + self.tick_spacing.read(),
+                            is_limit_order: true,
+                        },
+                        liquidity_delta: amount.into()
+                    }
+                );
+
+            let amount_0: u256 = amount_0.try_into().unwrap();
+            let amount_1: u256 = amount_1.try_into().unwrap();
+
+            let callback_contract = get_caller_address();
+            assert(is_valid_callback_contract(callback_contract), 'invalid callback_contract');
+            let dispatcher = IYASMintCallbackDispatcher { contract_address: callback_contract };
+
+            if amount_0 > 0 {
+                if amount_1 != 0 {
+                    RangeError::InRange() // Can only have single sided orders
+                }
+                let balance_0_before = self.balance_0();
+                dispatcher.yas_mint_callback(amount_0, 0, data);
+                assert(balance_0_before + amount_0 <= self.balance_0(), 'CLO0');
+            } else {
+                if amount_0 != 0 {
+                    RangeError::InRange() // Can only have single sided orders
+                }
+                let balance_1_before = self.balance_1();
+                dispatcher.yas_mint_callback(0, amount_1, data);
+                assert(balance_1_before + amount_1 <= self.balance_1(), 'CLO1');
+            };
+
+            self.emit(LimitOrder { sender: get_caller_address(), recipient, tick_lower, amount });
+            self.unlock();
         }
     }
 

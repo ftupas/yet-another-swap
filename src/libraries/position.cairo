@@ -3,7 +3,7 @@ use yas::numbers::signed_integer::{i32::i32, i128::i128, integer_trait::IntegerT
 
 
 // info stored for each user's position
-#[derive(Copy, Drop, Serde, starknet::Store)]
+#[derive(Copy, Drop, Serde, starknet::Store, PartialEq)]
 struct Info {
     // the amount of liquidity owned by this position
     liquidity: u128,
@@ -13,6 +13,8 @@ struct Info {
     // the fee owed to the position owner in token0/token1
     tokens_owed_0: u128,
     tokens_owed_1: u128,
+    // if position is a limit order
+    is_limit_order: bool,
 }
 
 #[derive(Copy, Drop, Hash, Serde)]
@@ -20,6 +22,7 @@ struct PositionKey {
     owner: ContractAddress,
     tick_lower: i32,
     tick_upper: i32,
+    is_limit_order: bool,
 }
 
 #[starknet::interface]
@@ -110,6 +113,10 @@ mod Position {
                 position.liquidity = liquidity_next;
             }
 
+            if position_key.is_limit_order {
+                position.is_limit_order = true;
+            }
+
             position.fee_growth_inside_0_last_X128 = fee_growth_inside_0_X128;
             position.fee_growth_inside_1_last_X128 = fee_growth_inside_1_X128;
 
@@ -130,4 +137,3 @@ mod Position {
         }
     }
 }
-

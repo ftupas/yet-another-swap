@@ -20,6 +20,7 @@ mod libraries {
     mod sqrt_price_math;
     mod tick;
     mod tick_bitmap;
+    mod errors;
 }
 
 mod numbers {
