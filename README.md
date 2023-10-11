@@ -257,19 +257,19 @@ make deploy
 
   ```rust
   struct PositionKey {
-  owner: ContractAddress,
-  tick_lower: i32,
-  tick_upper: i32,
-  is_limit_order: bool,
+    owner: ContractAddress,
+    tick_lower: i32,
+    tick_upper: i32,
+    is_limit_order: bool,
   }
 
   struct Info {
-  liquidity: u128,
-  fee_growth_inside_0_last_X128: u256,
-  fee_growth_inside_1_last_X128: u256,
-  tokens_owed_0: u128,
-  tokens_owed_1: u128,
-  is_limit_order: bool,
+    liquidity: u128,
+    fee_growth_inside_0_last_X128: u256,
+    fee_growth_inside_1_last_X128: u256,
+    tokens_owed_0: u128,
+    tokens_owed_1: u128,
+    is_limit_order: bool,
   }
   ```
 
@@ -280,6 +280,47 @@ make deploy
 - To do this, when we take the `next_initialized_tick_within_one_word` and
   check if the position is a limit order. After crossing this tick (filling
   the order), we flip it to be uninitialized so it does not get unfilled.
+
+### `collect_limit_order`
+
+- This function collects the limit order, removing the liquidity and returning
+  the swapped amount and refunding the unswapped tokens to the user.
+
+  ```rust
+  fn collect_limit_order(
+    self: @TContractState,
+    pool: ContractAddress,
+    recipient:ContractAddress,
+    tick_lower: i32,
+  );
+  ```
+
+- Clears the position by calling `modify_position` and uses all of the
+  liquidity.
+
+  ```rust
+  modify_position(
+    ModifyPositionParams {
+       position_key,
+       liquidity_delta: IntegerTrait::<i128>::new(position.liquidity, true),
+    }
+  );
+  ```
+
+- Approves the amount of token_0 and token_1 to be removed from the pool to be
+  spent by the callback contract (router).
+
+  ```rust
+  token_0.approve(callback_contract, amount_0_collected);
+  token_1.approve(callback_contract, amount_1_collected);
+  ```
+
+- Finally, calls the `yas_collect_callback` to `transferFrom` the pool
+  contract to the recipient (owner of the limit order).
+  ```rust
+  IERC20Dispatcher { contract_address: token_0 }
+    .transferFrom(msg_sender, receipient, amount_0_collected);
+  ```
 
 ## Version Specifications
 
@@ -321,22 +362,22 @@ Thanks goes to these wonderful people
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/rcatalan98"><img src="https://avatars.githubusercontent.com/u/13773225?v=4" width="100px;" alt="Roberto Catalan "/><br /><sub><b>Roberto Catalan </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=rcatalan98" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dpinones"><img src="https://avatars.githubusercontent.com/u/30808181?v=4" width="100px;" alt="Damián Piñones "/><br /><sub><b>Damián Piñones </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dpinones" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dubzn"><img src="https://avatars.githubusercontent.com/u/58611754?v=4" width="100px;" alt="Santiago Galván (Dub) "/><br /><sub><b>Santiago Galván (Dub) </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dubzn" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/SantiagoPittella"><img src="https://avatars.githubusercontent.com/u/87827390?v=4" width="100px;" alt="Santiago Pittella "/><br /><sub><b>Santiago Pittella </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=SantiagoPittella" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/FranFiuba"><img src="https://avatars.githubusercontent.com/u/5733366?v=4" width="100px;" alt="Francisco Strambini "/><br /><sub><b>Francisco Strambini </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=FranFiuba" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/WiseMrMusa"><img src="https://avatars.githubusercontent.com/u/37452594?s=96&v=4" width="100px;" alt="Musa AbdulKareem "/><br /><sub><b>Musa AbdulKareem </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=WiseMrMusa" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/0xd3bs"><img src="https://avatars.githubusercontent.com/u/6605280?v=4" width="100px;" alt="dblanco "/><br /><sub><b>dblanco </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=0xd3bs" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Nadai2010"><img src="https://avatars.githubusercontent.com/u/112663528?v=4" width="100px;" alt="Nadai "/><br /><sub><b>Nadai </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=Nadai2010" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dbejarano820"><img src="https://avatars.githubusercontent.com/u/58019353?v=4" width="100px;" alt="Daniel Bejarano "/><br /><sub><b>Daniel Bejarano </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dbejarano820" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ftupas"><img src="https://avatars.githubusercontent.com/u/35031356?v=4" width="100px;" alt="ftupas "/><br /><sub><b>ftupas </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=ftupas" title="Code">💻</a></td>
-    </tr>
-  </tbody>
+<tbody>
+<tr>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/rcatalan98"><img src="https://avatars.githubusercontent.com/u/13773225?v=4" width="100px;" alt="Roberto Catalan "/><br /><sub><b>Roberto Catalan </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=rcatalan98" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/dpinones"><img src="https://avatars.githubusercontent.com/u/30808181?v=4" width="100px;" alt="Damián Piñones "/><br /><sub><b>Damián Piñones </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dpinones" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/dubzn"><img src="https://avatars.githubusercontent.com/u/58611754?v=4" width="100px;" alt="Santiago Galván (Dub) "/><br /><sub><b>Santiago Galván (Dub) </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dubzn" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/SantiagoPittella"><img src="https://avatars.githubusercontent.com/u/87827390?v=4" width="100px;" alt="Santiago Pittella "/><br /><sub><b>Santiago Pittella </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=SantiagoPittella" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/FranFiuba"><img src="https://avatars.githubusercontent.com/u/5733366?v=4" width="100px;" alt="Francisco Strambini "/><br /><sub><b>Francisco Strambini </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=FranFiuba" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/WiseMrMusa"><img src="https://avatars.githubusercontent.com/u/37452594?s=96&v=4" width="100px;" alt="Musa AbdulKareem "/><br /><sub><b>Musa AbdulKareem </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=WiseMrMusa" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/0xd3bs"><img src="https://avatars.githubusercontent.com/u/6605280?v=4" width="100px;" alt="dblanco "/><br /><sub><b>dblanco </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=0xd3bs" title="Code">💻</a></td>
+</tr>
+<tr>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/Nadai2010"><img src="https://avatars.githubusercontent.com/u/112663528?v=4" width="100px;" alt="Nadai "/><br /><sub><b>Nadai </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=Nadai2010" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/dbejarano820"><img src="https://avatars.githubusercontent.com/u/58019353?v=4" width="100px;" alt="Daniel Bejarano "/><br /><sub><b>Daniel Bejarano </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=dbejarano820" title="Code">💻</a></td>
+<td align="center" valign="top" width="14.28%"><a href="https://github.com/ftupas"><img src="https://avatars.githubusercontent.com/u/35031356?v=4" width="100px;" alt="ftupas "/><br /><sub><b>ftupas </b></sub></a><br /><a href="https://github.com/lambdaclass/yet-another-swap/commits?author=ftupas" title="Code">💻</a></td>
+</tr>
+</tbody>
 </table>
 
 <!-- markdownlint-restore -->
@@ -347,3 +388,11 @@ Thanks goes to these wonderful people
 This project follows the
 [all-contributors](https://github.com/all-contributors/all-contributors)
 specification. Contributions of any kind welcome!
+
+```
+
+```
+
+```
+
+```

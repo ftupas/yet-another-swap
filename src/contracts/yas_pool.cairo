@@ -29,6 +29,9 @@ trait IYASPool<TContractState> {
         amount: u128,
         data: Array<felt252>
     );
+    fn collect_limit_order(
+        ref self: TContractState, recipient: ContractAddress, tick_lower: i32, data: Array<felt252>,
+    );
     fn position(self: @TContractState, position_key: PositionKey) -> Info;
     fn token_0(self: @TContractState) -> ContractAddress;
     fn token_1(self: @TContractState) -> ContractAddress;
@@ -36,6 +39,7 @@ trait IYASPool<TContractState> {
 
 #[starknet::contract]
 mod YASPool {
+    use core::traits::Into;
     use super::IYASPool;
 
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, get_contract_address};
@@ -43,6 +47,9 @@ mod YASPool {
     use yas::interfaces::interface_ERC20::{IERC20DispatcherTrait, IERC20Dispatcher};
     use yas::interfaces::interface_yas_mint_callback::{
         IYASMintCallbackDispatcherTrait, IYASMintCallbackDispatcher
+    };
+    use yas::interfaces::interface_yas_collect_callback::{
+        IYASCollectCallbackDispatcherTrait, IYASCollectCallbackDispatcher
     };
     use yas::interfaces::interface_yas_swap_callback::{
         IYASSwapCallbackDispatcherTrait, IYASSwapCallbackDispatcher
@@ -66,7 +73,7 @@ mod YASPool {
     use yas::utils::math_utils::Constants::Q128;
     use yas::utils::math_utils::FullMath;
     use yas::utils::math_utils::BitShift::BitShiftTrait;
-    use yas::libraries::errors::{LiquidityError, RangeError};
+    use yas::libraries::errors::{LiquidityError, RangeError, LimitOrderError};
     use debug::PrintTrait;
 
     #[event]
@@ -75,7 +82,8 @@ mod YASPool {
         Initialize: Initialize,
         SwapExecuted: SwapExecuted,
         Mint: Mint,
-        LimitOrder: LimitOrder,
+        CreateLimitOrder: CreateLimitOrder,
+        CollectLimitOrder: CollectLimitOrder,
     }
 
     /// @notice Emitted exactly once by a pool when #initialize is first called on the pool
@@ -111,11 +119,20 @@ mod YASPool {
     }
 
     #[derive(Drop, starknet::Event)]
-    struct LimitOrder {
+    struct CreateLimitOrder {
         sender: ContractAddress,
         recipient: ContractAddress,
         tick_lower: i32,
         amount: u128,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct CollectLimitOrder {
+        sender: ContractAddress,
+        recipient: ContractAddress,
+        tick_lower: i32,
+        amount_0_collected: u256,
+        amount_1_collected: u256,
     }
 
     #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -562,6 +579,12 @@ mod YASPool {
             (amount_0, amount_1)
         }
 
+        /// @notice Creates a limit order for the given position
+        /// @dev The order will be filled when the tick is crossed by the current tick
+        /// @param recipient The address that will receive the tokens when the order is filled
+        /// @param tick_lower The lower tick of the position's tick range
+        /// @param amount The amount of liquidity to add to the position
+        /// @param data Any data to be passed through to the callback
         fn create_limit_order(
             ref self: ContractState,
             recipient: ContractAddress,
@@ -613,7 +636,80 @@ mod YASPool {
                 assert(balance_1_before + amount_1 <= self.balance_1(), 'CLO1');
             };
 
-            self.emit(LimitOrder { sender: get_caller_address(), recipient, tick_lower, amount });
+            self
+                .emit(
+                    CreateLimitOrder { sender: get_caller_address(), recipient, tick_lower, amount }
+                );
+            self.unlock();
+        }
+
+        /// @notice Collects the limit order, returning swapped amount and refund unswapped to user
+        /// @dev Removes the limit order from the position and returns the swapped amount to the user
+        /// @param recipient The address that will receive the tokens when the order is filled
+        /// @param tick_lower The lower tick of the position's tick range
+        /// @param data Any data to be passed through to the callback
+        fn collect_limit_order(
+            ref self: ContractState,
+            recipient: ContractAddress,
+            tick_lower: i32,
+            data: Array<felt252>
+        ) {
+            self.check_and_lock();
+
+            // Get the position using the key derived from the recipient and tick_lower
+            let mut position_state = Position::unsafe_new_contract_state();
+            let position_key = PositionKey {
+                owner: recipient,
+                tick_lower,
+                tick_upper: tick_lower + self.tick_spacing.read(),
+                is_limit_order: true,
+            };
+            let position = PositionImpl::get(@position_state, position_key);
+            if position.liquidity == 0 {
+                LimitOrderError::OrderDoesNotExist()
+            };
+
+            // Modify position to remove the limit order (all liquidity)
+            let (_, amount_0, amount_1) = self
+                .modify_position(
+                    ModifyPositionParams {
+                        position_key,
+                        liquidity_delta: IntegerTrait::<i128>::new(position.liquidity, true),
+                    }
+                );
+
+            // Since we are removing all liquidity, this will be negative so we take the mag
+            let amount_0_collected = amount_0.mag;
+            let amount_1_collected = amount_1.mag;
+            let balance_0_before = self.balance_0();
+            let balance_1_before = self.balance_1();
+
+            // Approve the token transfer
+            let callback_contract = get_caller_address();
+            let token_0 = IERC20Dispatcher { contract_address: self.token_0.read() };
+            let token_1 = IERC20Dispatcher { contract_address: self.token_1.read() };
+            token_0.approve(callback_contract, amount_0_collected);
+            token_1.approve(callback_contract, amount_1_collected);
+
+            // Collect the limit order
+            assert(is_valid_callback_contract(callback_contract), 'invalid callback_contract');
+            let dispatcher = IYASCollectCallbackDispatcher { contract_address: callback_contract };
+            dispatcher.yas_collect_callback(amount_0_collected, amount_1_collected, data);
+
+            assert(balance_0_before - amount_0_collected <= self.balance_0(), 'CLO0');
+            assert(balance_1_before - amount_1_collected <= self.balance_1(), 'CLO1');
+
+            self
+                .emit(
+                    CollectLimitOrder {
+                        sender: get_caller_address(),
+                        recipient,
+                        tick_lower,
+                        amount_0_collected,
+                        amount_1_collected,
+                    }
+                );
+
             self.unlock();
         }
     }

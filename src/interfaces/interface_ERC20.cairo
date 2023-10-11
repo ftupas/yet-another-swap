@@ -7,4 +7,6 @@ trait IERC20<TContractState> {
     fn transferFrom(
         ref self: TContractState, sender: ContractAddress, recipient: ContractAddress, amount: u256
     ) -> bool;
+    fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
+    fn allowance(self: @TContractState, owner: ContractAddress, spender: ContractAddress) -> u256;
 }

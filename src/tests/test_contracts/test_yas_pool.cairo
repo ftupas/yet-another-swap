@@ -581,13 +581,28 @@ mod YASPoolTests {
                 set_contract_address(router.contract_address);
                 yas_pool.create_limit_order(WALLET(), min_tick, 0, array![WALLET().into()]);
             }
+            #[test]
+            #[available_gas(700000000)]
+            #[should_panic(expected: ('limit order not found', 'ENTRYPOINT_FAILED'),)]
+            fn test_fails_collect_limit_order_non_existent() {
+                // Given
+                let (yas_pool, token_0, token_1, router) = setup();
+                let (tick, _) = get_min_tick_and_max_tick();
+
+                // When
+                set_contract_address(router.contract_address);
+                yas_pool.collect_limit_order(WALLET(), tick, array![WALLET().into()]);
+            }
         }
+
         mod SuccessCases {
+            use starknet::testing::pop_log;
             use starknet::testing::set_contract_address;
             use super::super::{setup, get_min_tick_and_max_tick};
             use yas::contracts::yas_pool::{
-                YASPool, YASPool::ContractState, YASPool::InternalImpl, IYASPool,
-                IYASPoolDispatcher, IYASPoolDispatcherTrait
+                YASPool, YASPool::ContractState,
+                YASPool::{InternalImpl, CreateLimitOrder, Initialize, Mint, CollectLimitOrder},
+                IYASPool, IYASPoolDispatcher, IYASPoolDispatcherTrait,
             };
             use yas::numbers::signed_integer::{
                 i32::i32, i32::i32_div_no_round, i64::i64, i128::i128, integer_trait::IntegerTrait
@@ -598,6 +613,7 @@ mod YASPoolTests {
             use yas::tests::utils::constants::PoolConstants::{
                 TOKEN_A, TOKEN_B, WALLET, encode_price_sqrt_1_1
             };
+            use debug::PrintTrait;
             #[test]
             #[available_gas(700000000)]
             fn test_succeed_create_limit_order() {
@@ -619,13 +635,68 @@ mod YASPoolTests {
                     tokens_owed_1: 0,
                     is_limit_order: true,
                 };
+
+                // When
                 set_contract_address(router.contract_address);
                 yas_pool
                     .create_limit_order(
                         WALLET(), tick, liquidity, array![WALLET().into()]
                     ); // caller of router is the account
+
+                // Then
                 let info = yas_pool.position(position_key);
                 assert(info == position_info, 'wrong position info');
+
+                let _ = pop_log::<Initialize>(yas_pool.contract_address).unwrap();
+                let _ = pop_log::<Mint>(yas_pool.contract_address).unwrap();
+                let event = pop_log::<CreateLimitOrder>(yas_pool.contract_address).unwrap();
+                assert(event.sender == router.contract_address, 'wrong event value sender');
+                assert(event.recipient == WALLET(), 'wrong event value recipient');
+                assert(event.tick_lower == tick, 'wrong event value tick');
+                assert(event.amount == liquidity, 'wrong event value amount');
+            }
+
+            #[test]
+            #[available_gas(700000000)]
+            fn test_succeed_collect_limit_order() {
+                // Given
+                let (yas_pool, token_0, token_1, router) = setup();
+                let tick = get_tick_at_sqrt_ratio(encode_price_sqrt_1_1());
+                let liquidity = 2000000;
+                let position_key = PositionKey {
+                    owner: WALLET(),
+                    tick_lower: tick,
+                    tick_upper: tick + IntegerTrait::<i32>::new(10, false), // tick spacing for LOW
+                    is_limit_order: true,
+                };
+                let position_info = Info {
+                    liquidity: 0, // cleared liquidity
+                    fee_growth_inside_0_last_X128: 0,
+                    fee_growth_inside_1_last_X128: 0,
+                    tokens_owed_0: 0,
+                    tokens_owed_1: 0,
+                    is_limit_order: true,
+                };
+
+                // When
+                set_contract_address(router.contract_address);
+                yas_pool
+                    .create_limit_order(
+                        WALLET(), tick, liquidity, array![WALLET().into()]
+                    ); // caller of router is the account
+                yas_pool.collect_limit_order(WALLET(), tick, array![WALLET().into()]);
+
+                // Then
+                let info = yas_pool.position(position_key);
+                assert(info == position_info, 'wrong position info');
+
+                let _ = pop_log::<Initialize>(yas_pool.contract_address).unwrap();
+                let _ = pop_log::<Mint>(yas_pool.contract_address).unwrap();
+                let _ = pop_log::<CreateLimitOrder>(yas_pool.contract_address).unwrap();
+                let event = pop_log::<CollectLimitOrder>(yas_pool.contract_address).unwrap();
+                assert(event.sender == router.contract_address, 'wrong event value sender');
+                assert(event.recipient == WALLET(), 'wrong event value recipient');
+                assert(event.tick_lower == tick, 'wrong event value tick');
             }
         }
     }
