@@ -239,13 +239,47 @@ make deploy
 
 - Similar to `mint`, this function creates a limit order of `amount` between
   `tick_lower` and `tick_lower + tick_spacing`.
+
+  ```rust
+  fn create_limit_order(
+      self: @TContractState,
+      pool: ContractAddress,
+      recipient: ContractAddress,
+      tick_lower: i32,
+      amount: u128,
+  )
+  ```
+
 - In the `Info` and `PositionKey` struct, we add a flag `is_limit_order` to
   differentiate if the position is a limit order. The bitmap data structure
   allows the position to be stored in an efficient way so we don't need to
   loop over them for each swap.
+
+  ```rust
+  struct PositionKey {
+  owner: ContractAddress,
+  tick_lower: i32,
+  tick_upper: i32,
+  is_limit_order: bool,
+  }
+
+  struct Info {
+  liquidity: u128,
+  fee_growth_inside_0_last_X128: u256,
+  fee_growth_inside_1_last_X128: u256,
+  tokens_owed_0: u128,
+  tokens_owed_1: u128,
+  is_limit_order: bool,
+  }
+  ```
+
 - When a `swap` happens and the position to be filled is a limit order, the
-  liquidity is automatically withdrawn. This way the position does not get
-  unfilled if the price moves back across the tick.
+  liquidity is automatically withdrawn (uninitialized). This way the position
+  does not get unfilled if the price moves back across the tick.
+
+- To do this, when we take the `next_initialized_tick_within_one_word` and
+  check if the position is a limit order. After crossing this tick (filling
+  the order), we flip it to be uninitialized so it does not get unfilled.
 
 ## Version Specifications
 
